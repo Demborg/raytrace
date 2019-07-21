@@ -112,7 +112,7 @@ def main():
         ])
 
     camera = Camera(
-        (320, 320),
+        (100, 100),
         np.array([-1, 0, 0]),
         np.array([0, 0, 0]),
         np.array([0, 1, 0])
