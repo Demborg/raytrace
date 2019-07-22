@@ -35,6 +35,23 @@ class Thing(ABC):
     @abstractmethod
     def __call__(self, ray: Ray):
         pass
+
+    @staticmethod
+    def interaction(
+            surface_normal: np.array,
+            point: np.array,
+            material: Material,
+            ray: Ray
+    ) -> Ray:
+        if material == Material.MIRROR:
+            normal = ray.normal - 2 * surface_normal.dot(ray.normal) * surface_normal
+        elif material == Material.DIFFUSE:
+            normal = normalize(np.random.normal(size=3))
+            if np.sign(normal.dot(surface_normal)) == np.sign(ray.normal.dot(surface_normal)):
+                normal = -normal
+        else:
+            normal = np.array([0, 0, 0])
+        return Ray(normal, point)
     
 class Plane(Thing):
     def __init__(self, normal: np.array, start: np.array, color: np.array, material: Material):
@@ -56,18 +73,41 @@ class Plane(Thing):
             return Reflection(np.inf, None, np.zeros(3), self.material)
             
         point = ray(distance)
-        if self.material == Material.MIRROR:
-            normal = ray.normal - 2 * self.normal.dot(ray.normal) * self.normal
-        elif self.material == Material.DIFFUSE:
-            normal = normalize(np.random.normal(size=3))
-            if np.sign(normal.dot(self.normal)) == np.sign(ray.normal.dot(self.normal)):
-                normal = normal - 2 * self.normal.dot(normal) * self.normal
-        else:
-            normal = self.normal
+        new_ray = self.interaction(self.normal, point, self.material, ray)
         return Reflection(distance,
-                          Ray(normal, point),
+                          new_ray,
                           self.color,
                           self.material)
+
+class Sphere(Thing):
+    def __init__(self, center: np.array, radius: float, color: np.array, material: Material):
+        assert center.shape == (3,)
+        assert color.shape == (3,)
+
+        self.center = center
+        self.radius = radius
+        self.color = color
+        self.material = material
+
+    def __call__(self, ray: Ray) -> Reflection:
+        under_rot = ((ray.start.dot(ray.normal) - self.center.dot(ray.normal)) ** 2
+                     + self.radius ** 2
+                     - (ray.start - self.center).dot(ray.start - self.center))
+        if under_rot < 0:
+            return Reflection(np.inf, None, np.zeros(3), self.material)
+        constant = self.center.dot(ray.normal) - ray.start.dot(ray.normal)
+
+        distance_candidates = constant + np.array([np.sqrt(under_rot), -np.sqrt(under_rot)])
+
+        distance = min(distance_candidates[distance_candidates > 0], default=np.inf)
+        if distance <= 0:
+            return Reflection(np.inf, None, np.zeros(3), self.material)
+
+        point = ray(distance)
+        surface_normal = (point - self.center) / self.radius
+        new_ray = self.interaction(surface_normal, point, self.material, ray)
+
+        return Reflection(distance, new_ray, self.color, self.material)
 
 
 class World(object):
@@ -123,11 +163,18 @@ def normalize(a: np.array) -> np.array:
 
 def main():
     world = World([
-        Plane(np.array([0, 1, 0]), np.array([0, 2, 0]), np.array([1.0, 1.0, 1.0]), Material.LIGHT),
-        Plane(np.array([1, 0, 0]), np.array([1, 0, 0]), np.array([1.0, 0.2, 0.1]), Material.DIFFUSE),
-        Plane(np.array([1, 0, 0]), np.array([-1, 0, 0]), np.array([0.3, 1, 0.1]), Material.DIFFUSE),
-        Plane(np.array([0, 0, 1]), np.array([0, 0, 1]), np.array([0.1, 0.4, 0.9]), Material.DIFFUSE),
-        Plane(np.array([0, 0, 1]), np.array([0, 0, -1]), np.array([0.5, 0.5, 0.5]), Material.MIRROR),
+        Plane(np.array([0, 1, 0]), np.array([0, 2, 0]),
+            np.array([1.0, 0.2, 0.1]), Material.DIFFUSE),
+        Plane(np.array([1, 0, 0]), np.array([1, 0, 0]),
+            np.array([1.0, 1.0, 1.0]), Material.LIGHT),
+        Plane(np.array([1, 0, 0]), np.array([-1, 0, 0]),
+            np.array([0.3, 1, 0.1]), Material.DIFFUSE),
+        Plane(np.array([0, 0, 1]), np.array([0, 0, 1]),
+            np.array([0.1, 0.4, 0.9]), Material.DIFFUSE),
+        Plane(np.array([0, 0, -1]), np.array([0, 0, -1]),
+            np.array([0.9, 0.9, 0.1]), Material.DIFFUSE),
+        Sphere(np.array([-0.5, 1.5, 0]),  0.5,
+            np.array([0.5, 0.5, 0.5]), Material.MIRROR),
         ])
 
     camera = Camera(
@@ -137,7 +184,7 @@ def main():
         np.array([0, 1, 0])
     )
     
-    num_snaps = 1000
+    num_snaps = 10
     image = np.zeros([*camera.resolution, 3])
     for i in tqdm(range(num_snaps)):
         image += camera(world)
