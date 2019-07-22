@@ -1,9 +1,10 @@
-import numpy as np
 from abc import ABC, abstractmethod
-from typing import Sequence, Tuple
 from enum import Enum
+from typing import Sequence, Tuple
 
 import matplotlib.pyplot as plt
+import numpy as np
+from tqdm import tqdm
 
 class Material(Enum):
     MIRROR = 1
@@ -136,8 +137,11 @@ def main():
         np.array([0, 1, 0])
     )
     
-    num_snaps = 100
-    image = sum(camera(world) for i in range(num_snaps))/num_snaps
+    num_snaps = 1000
+    image = np.zeros([*camera.resolution, 3])
+    for i in tqdm(range(num_snaps)):
+        image += camera(world)
+    image /= num_snaps
 
     plt.imshow(image)
     plt.show()
