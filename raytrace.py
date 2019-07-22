@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
+EPSILON = 1e-10
+
 class Material(Enum):
     MIRROR = 1
     LIGHT = 2
@@ -69,7 +71,7 @@ class Plane(Thing):
             return Reflection(np.inf, None, np.zeros(3), self.material)
 
         distance = (self.start - ray.start).dot(self.normal) / denominator
-        if distance <= 0:
+        if distance <= EPSILON:
             return Reflection(np.inf, None, np.zeros(3), self.material)
             
         point = ray(distance)
@@ -90,17 +92,18 @@ class Sphere(Thing):
         self.material = material
 
     def __call__(self, ray: Ray) -> Reflection:
-        under_rot = ((ray.start.dot(ray.normal) - self.center.dot(ray.normal)) ** 2
+        diff = self.center - ray.start
+        under_rot = (diff.dot(ray.normal) ** 2
                      + self.radius ** 2
-                     - (ray.start - self.center).dot(ray.start - self.center))
+                     - (diff).dot(diff))
         if under_rot < 0:
             return Reflection(np.inf, None, np.zeros(3), self.material)
-        constant = self.center.dot(ray.normal) - ray.start.dot(ray.normal)
+        rot = np.sqrt(under_rot)
+        c = diff.dot(ray.normal)
+        candidates = [c + rot, c - rot, np.inf]
+        distance = min(c for c in candidates if c > EPSILON)
 
-        distance_candidates = constant + np.array([np.sqrt(under_rot), -np.sqrt(under_rot)])
-
-        distance = min(distance_candidates[distance_candidates > 0], default=np.inf)
-        if distance <= 0:
+        if distance == np.inf:
             return Reflection(np.inf, None, np.zeros(3), self.material)
 
         point = ray(distance)
@@ -116,7 +119,7 @@ class World(object):
         
     def __call__(self, ray: Ray, max_bounce: int = 3):
         color = np.ones(3)
-        for r in range(max_bounce): 
+        for bounce in range(max_bounce):
             reflection = min((thing(ray) for thing in self.things), key = lambda r: r.distance)
             color *= reflection.color
             if (color == np.zeros(3)).all():
@@ -174,7 +177,7 @@ def main():
         Plane(np.array([0, 0, -1]), np.array([0, 0, -1]),
             np.array([0.9, 0.9, 0.1]), Material.DIFFUSE),
         Sphere(np.array([-0.5, 1.5, 0]),  0.5,
-            np.array([0.5, 0.5, 0.5]), Material.MIRROR),
+            np.array([0.7, 0.7, 0.7]), Material.MIRROR),
         ])
 
     camera = Camera(
@@ -184,7 +187,7 @@ def main():
         np.array([0, 1, 0])
     )
     
-    num_snaps = 10
+    num_snaps = 100
     image = np.zeros([*camera.resolution, 3])
     for i in tqdm(range(num_snaps)):
         image += camera(world)
