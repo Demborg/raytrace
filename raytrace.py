@@ -1,8 +1,14 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Sequence, Tuple
+from enum import Enum
 
 import matplotlib.pyplot as plt
+
+class Material(Enum):
+    MIRROR = 1
+    LIGHT = 2
+    DIFFUSE = 3
 
 class Ray(object):
     def __init__(self, normal: np.array, start: np.array):
@@ -16,12 +22,13 @@ class Ray(object):
         return self.start + distance * self.normal
 
 class Reflection(object):
-    def __init__(self, distance: float, ray: Ray, color: np.array):
+    def __init__(self, distance: float, ray: Ray, color: np.array, material: Material):
         assert color.shape == (3,)
         assert distance > 0
         self.distance = distance
         self.ray = ray
         self.color = color
+        self.material = material
 
 class Thing(ABC):
     @abstractmethod
@@ -29,43 +36,54 @@ class Thing(ABC):
         pass
     
 class Plane(Thing):
-    def __init__(self, normal: np.array, start: np.array, color: np.array):
+    def __init__(self, normal: np.array, start: np.array, color: np.array, material: Material):
         assert normal.shape == (3,)
         assert start.shape == (3,)
         assert color.shape == (3,)
         self.normal = normal
         self.start = start
         self.color = color 
+        self.material = material
 
     def __call__(self, ray: Ray) -> Reflection:
         denominator = self.normal.dot(ray.normal)
         if denominator == 0:
-            return Reflection(np.inf, None, np.zeros(3))
+            return Reflection(np.inf, None, np.zeros(3), self.material)
 
         distance = (self.start - ray.start).dot(self.normal) / denominator
         if distance <= 0:
-            return Reflection(np.inf, None, np.zeros(3))
+            return Reflection(np.inf, None, np.zeros(3), self.material)
             
         point = ray(distance)
-        normal = ray.normal - 2 * self.normal.dot(ray.normal) * self.normal
+        if self.material == Material.MIRROR:
+            normal = ray.normal - 2 * self.normal.dot(ray.normal) * self.normal
+        elif self.material == Material.DIFFUSE:
+            normal = normalize(np.random.normal(size=3))
+            if np.sign(normal.dot(self.normal)) == np.sign(ray.normal.dot(self.normal)):
+                normal = normal - 2 * self.normal.dot(normal) * self.normal
+        else:
+            normal = self.normal
         return Reflection(distance,
                           Ray(normal, point),
-                          self.color)
+                          self.color,
+                          self.material)
 
 
 class World(object):
     def __init__(self, things: Sequence[Thing]):
         self.things = things
         
-    def __call__(self, ray: Ray, max_bounce: int = 1):
+    def __call__(self, ray: Ray, max_bounce: int = 3):
         color = np.ones(3)
         for r in range(max_bounce): 
             reflection = min((thing(ray) for thing in self.things), key = lambda r: r.distance)
             color *= reflection.color
-            if color == np.zeros([0, 0, 0]):
+            if (color == np.zeros(3)).all():
                 break
+            if reflection.material == Material.LIGHT:
+                return color
             ray = reflection.ray
-        return color
+        return np.zeros(3)
 
 
 class Camera(object):
@@ -104,11 +122,11 @@ def normalize(a: np.array) -> np.array:
 
 def main():
     world = World([
-        Plane(np.array([0, 1, 0]), np.array([0, 2, 0]), np.array([0.9, 0.9, 0.9])),
-        Plane(np.array([1, 0, 0]), np.array([1, 0, 0]), np.array([0.9, 0, 0])),
-        Plane(np.array([1, 0, 0]), np.array([-1, 0, 0]), np.array([0, 0.9, 0])),
-        Plane(np.array([0, 0, 1]), np.array([0, 0, 1]), np.array([0, 0, 0.9])),
-        Plane(np.array([0, 0, 1]), np.array([0, 0, -1]), np.array([0.9, 0.9, 0])),
+        Plane(np.array([0, 1, 0]), np.array([0, 2, 0]), np.array([1.0, 1.0, 1.0]), Material.LIGHT),
+        Plane(np.array([1, 0, 0]), np.array([1, 0, 0]), np.array([1.0, 0.2, 0.1]), Material.DIFFUSE),
+        Plane(np.array([1, 0, 0]), np.array([-1, 0, 0]), np.array([0.3, 1, 0.1]), Material.DIFFUSE),
+        Plane(np.array([0, 0, 1]), np.array([0, 0, 1]), np.array([0.1, 0.4, 0.9]), Material.DIFFUSE),
+        Plane(np.array([0, 0, 1]), np.array([0, 0, -1]), np.array([0.5, 0.5, 0.5]), Material.MIRROR),
         ])
 
     camera = Camera(
@@ -117,8 +135,9 @@ def main():
         np.array([0, 0, 0]),
         np.array([0, 1, 0])
     )
-
-    image = camera(world)
+    
+    num_snaps = 100
+    image = sum(camera(world) for i in range(num_snaps))/num_snaps
 
     plt.imshow(image)
     plt.show()
