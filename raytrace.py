@@ -66,7 +66,16 @@ class Thing(ABC):
                 normal = -normal
         else:
             normal = np.array([0, 0, 0])
-        return Reflection(distance, Ray(normal, intersection), self.color, self.material)
+
+        color_scale = 1
+        if self.material == Material.LIGHT:
+            color_scale = abs(ray.normal.dot(surface_normal))
+
+        return Reflection(
+                distance,
+                Ray(normal, intersection),
+                self.color * color_scale,
+                self.material)
     
 class Plane(Thing):
     def __init__(self, normal: np.array, start: np.array, color: np.array, material: Material):
