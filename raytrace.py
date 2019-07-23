@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -25,7 +25,7 @@ class Ray(object):
         return self.start + distance * self.normal
 
 class Reflection(object):
-    def __init__(self, distance: float, ray: Ray, color: np.array, material: Material):
+    def __init__(self, distance: float, ray: Optional[Ray], color: np.array, material: Material):
         assert color.shape == (3,)
         assert distance > 0
         self.distance = distance
@@ -35,83 +35,89 @@ class Reflection(object):
 
 class Thing(ABC):
     @abstractmethod
-    def __call__(self, ray: Ray):
+    def __init__(self, color: np.array, material: Material):
+        assert color.shape == (3,)
+        self.color = color
+        self.material = material
+
+    @abstractmethod
+    def surface_normal(self, point: np.array) -> np.ndarray:
         pass
 
-    @staticmethod
-    def interaction(
-            surface_normal: np.array,
-            point: np.array,
-            material: Material,
+    @abstractmethod
+    def intersect(self, ray: Ray) -> Tuple[float, Optional[np.array]]:
+        pass
+
+    def __call__(
+            self,
             ray: Ray
-    ) -> Ray:
-        if material == Material.MIRROR:
+    ) -> Reflection:
+        distance, intersection = self.intersect(ray)
+        if distance == np.inf:
+            return Reflection(distance, None, self.color, self.material)
+
+        surface_normal = self.surface_normal(intersection)
+
+        if self.material == Material.MIRROR:
             normal = ray.normal - 2 * surface_normal.dot(ray.normal) * surface_normal
-        elif material == Material.DIFFUSE:
+        elif self.material == Material.DIFFUSE:
             normal = normalize(np.random.normal(size=3))
             if np.sign(normal.dot(surface_normal)) == np.sign(ray.normal.dot(surface_normal)):
                 normal = -normal
         else:
             normal = np.array([0, 0, 0])
-        return Ray(normal, point)
+        return Reflection(distance, Ray(normal, intersection), self.color, self.material)
     
 class Plane(Thing):
     def __init__(self, normal: np.array, start: np.array, color: np.array, material: Material):
+        super().__init__(color, material)
         assert normal.shape == (3,)
         assert start.shape == (3,)
-        assert color.shape == (3,)
         self.normal = normal
         self.start = start
-        self.color = color 
-        self.material = material
 
-    def __call__(self, ray: Ray) -> Reflection:
+    def surface_normal(self, point: np.array) -> np.array:
+        return self.normal
+
+    def intersect(self, ray: Ray) -> Tuple[float, Optional[np.array]]:
         denominator = self.normal.dot(ray.normal)
         if denominator == 0:
-            return Reflection(np.inf, None, np.zeros(3), self.material)
+            return np.inf, None
 
         distance = (self.start - ray.start).dot(self.normal) / denominator
         if distance <= EPSILON:
-            return Reflection(np.inf, None, np.zeros(3), self.material)
+            return np.inf, None
             
-        point = ray(distance)
-        new_ray = self.interaction(self.normal, point, self.material, ray)
-        return Reflection(distance,
-                          new_ray,
-                          self.color,
-                          self.material)
+        return distance, ray(distance)
+
 
 class Sphere(Thing):
     def __init__(self, center: np.array, radius: float, color: np.array, material: Material):
-        assert center.shape == (3,)
-        assert color.shape == (3,)
+        super().__init__(color, material)
 
+        assert center.shape == (3,)
         self.center = center
         self.radius = radius
-        self.color = color
-        self.material = material
 
-    def __call__(self, ray: Ray) -> Reflection:
+    def surface_normal(self, point: np.array) -> np.array:
+        return (point - self.center) / self.radius
+
+    def intersect(self, ray: Ray) -> Tuple[float, Optional[np.array]]:
         diff = self.center - ray.start
         under_rot = (diff.dot(ray.normal) ** 2
                      + self.radius ** 2
                      - (diff).dot(diff))
         if under_rot < 0:
-            return Reflection(np.inf, None, np.zeros(3), self.material)
+            return np.inf, None
         rot = np.sqrt(under_rot)
         c = diff.dot(ray.normal)
         candidates = [c + rot, c - rot, np.inf]
         distance = min(c for c in candidates if c > EPSILON)
 
         if distance == np.inf:
-            return Reflection(np.inf, None, np.zeros(3), self.material)
-
-        point = ray(distance)
-        surface_normal = (point - self.center) / self.radius
-        new_ray = self.interaction(surface_normal, point, self.material, ray)
-
-        return Reflection(distance, new_ray, self.color, self.material)
-
+            return np.inf, None
+        return distance, ray(distance)
+        
 
 class World(object):
     def __init__(self, things: Sequence[Thing]):
@@ -122,9 +128,9 @@ class World(object):
         for bounce in range(max_bounce):
             reflection = min((thing(ray) for thing in self.things), key = lambda r: r.distance)
             color *= reflection.color
-            if (color == np.zeros(3)).all():
+            if (color == np.zeros(3)).all() or reflection.ray is None:
                 break
-            if reflection.material == Material.LIGHT:
+            elif reflection.material == Material.LIGHT:
                 return color
             ray = reflection.ray
         return np.zeros(3)
