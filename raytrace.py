@@ -1,3 +1,5 @@
+import argparse
+
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Sequence, Tuple, Optional
@@ -129,12 +131,13 @@ class Sphere(Thing):
         
 
 class World(object):
-    def __init__(self, things: Sequence[Thing]):
+    def __init__(self, things: Sequence[Thing], max_bounces: int = 3):
         self.things = things
+        self.max_bounces = max_bounces
         
-    def __call__(self, ray: Ray, max_bounce: int = 3):
+    def __call__(self, ray: Ray):
         color = np.ones(3)
-        for bounce in range(max_bounce):
+        for bounce in range(self.max_bounces):
             reflection = min((thing(ray) for thing in self.things), key = lambda r: r.distance)
             color *= reflection.color
             if (color == np.zeros(3)).all() or reflection.ray is None:
@@ -179,7 +182,15 @@ def normalize(a: np.array) -> np.array:
    return a / np.sqrt(a.dot(a))
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--image_size', default=100, type=int)
+    parser.add_argument('--num_passes', default=10, type=int)
+    parser.add_argument('--num_bounces', default=3, type=int)
+    return parser.parse_args()
+
 def main():
+    args = _parse_args()
     world = World([
         Plane(np.array([0, 1, 0]), np.array([0, 2, 0]),
             np.array([1.0, 0.2, 0.1]), Material.DIFFUSE),
@@ -193,20 +204,19 @@ def main():
             np.array([0.9, 0.9, 0.1]), Material.DIFFUSE),
         Sphere(np.array([-0.5, 1.5, 0]),  0.5,
             np.array([0.7, 0.7, 0.7]), Material.MIRROR),
-        ])
+        ], max_bounces=args.num_bounces)
 
     camera = Camera(
-        (100, 100),
+        (args.image_size, args.image_size),
         np.array([-1, 0, 0]),
         np.array([0, 0, 0]),
         np.array([0, 1, 0])
     )
     
-    num_snaps = 100
     image = np.zeros([*camera.resolution, 3])
-    for i in tqdm(range(num_snaps)):
+    for i in tqdm(range(args.num_passes)):
         image += camera(world)
-    image /= num_snaps
+    image /= np.max(image)
 
     plt.imshow(image)
     plt.show()
