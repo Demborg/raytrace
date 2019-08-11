@@ -69,14 +69,10 @@ class Thing(ABC):
         else:
             normal = np.array([0, 0, 0])
 
-        color_scale = 1
-        if self.material == Material.LIGHT:
-            color_scale = abs(ray.normal.dot(surface_normal))
-
         return Reflection(
                 distance,
                 Ray(normal, intersection),
-                self.color * color_scale,
+                self.color,
                 self.material)
     
 class Plane(Thing):
@@ -194,6 +190,8 @@ def main():
     world = World([
         Plane(np.array([0, 1, 0]), np.array([0, 2, 0]),
             np.array([1.0, 0.2, 0.1]), Material.DIFFUSE),
+        Plane(np.array([0, 1, 0]), np.array([0, -1, 0]),
+            np.array([1, 1, 1]), Material.DIFFUSE),
         Plane(np.array([1, 0, 0]), np.array([1, 0, 0]),
             np.array([1.0, 1.0, 1.0]), Material.LIGHT),
         Plane(np.array([1, 0, 0]), np.array([-1, 0, 0]),
